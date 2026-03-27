@@ -49,6 +49,7 @@ type Service interface {
 	Deny(permission PermissionRequest)
 	Request(ctx context.Context, opts CreatePermissionRequest) (bool, error)
 	AutoApproveSession(sessionID string)
+	DenySession(sessionID string)
 	SetSkipRequests(skip bool)
 	SkipRequests() bool
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[PermissionNotification]
@@ -64,6 +65,8 @@ type permissionService struct {
 	pendingRequests       *csync.Map[string, chan bool]
 	autoApproveSessions   map[string]bool
 	autoApproveSessionsMu sync.RWMutex
+	denySessions          map[string]bool
+	denySessionsMu        sync.RWMutex
 	skip                  bool
 	allowedTools          []string
 
@@ -159,6 +162,19 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		return true, nil
 	}
 
+	s.denySessionsMu.RLock()
+	denyUnrecognized := s.denySessions[opts.SessionID]
+	s.denySessionsMu.RUnlock()
+
+	if denyUnrecognized {
+		s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+			ToolCallID: opts.ToolCallID,
+			Granted:    false,
+			Denied:     true,
+		})
+		return false, ErrorPermissionDenied
+	}
+
 	fileInfo, err := os.Stat(opts.Path)
 	dir := opts.Path
 	if err == nil {
@@ -221,6 +237,15 @@ func (s *permissionService) AutoApproveSession(sessionID string) {
 	s.autoApproveSessionsMu.Unlock()
 }
 
+// DenySession configures the session to deny any permission request that is
+// not already covered by the allowedTools list, rather than blocking waiting
+// for a human response. This is safe for non-interactive (headless) use.
+func (s *permissionService) DenySession(sessionID string) {
+	s.denySessionsMu.Lock()
+	s.denySessions[sessionID] = true
+	s.denySessionsMu.Unlock()
+}
+
 func (s *permissionService) SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[PermissionNotification] {
 	return s.notificationBroker.Subscribe(ctx)
 }
@@ -240,6 +265,7 @@ func NewPermissionService(workingDir string, skip bool, allowedTools []string) S
 		workingDir:          workingDir,
 		sessionPermissions:  make([]PermissionRequest, 0),
 		autoApproveSessions: make(map[string]bool),
+		denySessions:        make(map[string]bool),
 		skip:                skip,
 		allowedTools:        allowedTools,
 		pendingRequests:     csync.NewMap[string, chan bool](),

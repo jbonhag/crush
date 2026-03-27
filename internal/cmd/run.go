@@ -53,6 +53,7 @@ crush run --continue "Follow up on your last response"
 			smallModel, _ = cmd.Flags().GetString("small-model")
 			sessionID, _  = cmd.Flags().GetString("session")
 			useLast, _    = cmd.Flags().GetBool("continue")
+			safe, _       = cmd.Flags().GetBool("safe")
 		)
 
 		// Cancel on SIGINT or SIGTERM.
@@ -103,7 +104,7 @@ crush run --continue "Follow up on your last response"
 			event.SetContinueLastSession(true)
 		}
 
-		return app.RunNonInteractive(ctx, os.Stdout, prompt, largeModel, smallModel, quiet || verbose, sessionID, useLast)
+		return app.RunNonInteractive(ctx, os.Stdout, prompt, largeModel, smallModel, quiet || verbose, sessionID, useLast, safe)
 	},
 }
 
@@ -114,5 +115,6 @@ func init() {
 	runCmd.Flags().String("small-model", "", "Small model to use. If not provided, uses the default small model for the provider")
 	runCmd.Flags().StringP("session", "s", "", "Continue a previous session by ID")
 	runCmd.Flags().BoolP("continue", "C", false, "Continue the most recent session")
+	runCmd.Flags().Bool("safe", false, "Deny any tool not in the permissions.allowed_tools list instead of auto-approving")
 	runCmd.MarkFlagsMutuallyExclusive("session", "continue")
 }

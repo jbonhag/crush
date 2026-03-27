@@ -189,8 +189,9 @@ func (app *App) resolveSession(ctx context.Context, continueSessionID string, us
 }
 
 // RunNonInteractive runs the application in non-interactive mode with the
-// given prompt, printing to stdout.
-func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt, largeModel, smallModel string, hideSpinner bool, continueSessionID string, useLast bool) error {
+// given prompt, printing to stdout. When safe is true, any tool that is not
+// in the configured allowed_tools list is denied rather than auto-approved.
+func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt, largeModel, smallModel string, hideSpinner bool, continueSessionID string, useLast bool, safe bool) error {
 	slog.Info("Running in non-interactive mode")
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -269,9 +270,14 @@ func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt,
 		slog.Info("Created session for non-interactive run", "session_id", sess.ID)
 	}
 
-	// Automatically approve all permission requests for this non-interactive
-	// session.
-	app.Permissions.AutoApproveSession(sess.ID)
+	// In safe mode, deny any tool not in the allowedTools list so the agent
+	// cannot take destructive actions without explicit pre-authorization.
+	// Otherwise, auto-approve all permission requests (legacy behavior).
+	if safe {
+		app.Permissions.DenySession(sess.ID)
+	} else {
+		app.Permissions.AutoApproveSession(sess.ID)
+	}
 
 	type response struct {
 		result *fantasy.AgentResult
